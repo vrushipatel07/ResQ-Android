@@ -2,6 +2,9 @@ package com.resq.ui
 
 import android.Manifest
 import android.app.Application
+import android.bluetooth.BluetoothAdapter
+import android.content.Intent
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +18,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
@@ -23,6 +28,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.resq.ui.home.HomeScreen
 import com.resq.ui.messages.PacketHistoryScreen
+import com.resq.ui.mesh.MeshScreen
 import com.resq.ui.placeholder.ComingSoonScreen
 import com.resq.ui.report.ReportScreen
 import com.resq.ui.settings.SettingsScreen
@@ -37,6 +43,7 @@ private object Routes {
     const val MESSAGES = "messages"
     const val MAP = "map"
     const val SETTINGS = "settings"
+    const val MESH = "mesh"
 }
 
 private data class BottomDestination(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
@@ -49,6 +56,7 @@ fun ResQApp() {
     )
     val location by viewModel.location.collectAsState()
     val packets by viewModel.packets.collectAsState()
+    val meshState by viewModel.meshState.collectAsState()
     var themeMode by remember { mutableStateOf(ThemeMode.SYSTEM) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -61,6 +69,39 @@ fun ResQApp() {
         if (viewModel.hasLocationPermission()) viewModel.refreshLocation()
         else permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
     }
+    val bluetoothPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        arrayOf(
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_ADVERTISE
+        )
+    } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions.values.all { it }) {
+            viewModel.refreshBluetooth()
+            viewModel.startBluetoothServer()
+        } else Toast.makeText(context, "Nearby devices permission is required", Toast.LENGTH_LONG).show()
+    }
+    val ensureBluetoothPermissions = {
+        val granted = bluetoothPermissions.all {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
+        if (granted) {
+            viewModel.refreshBluetooth()
+            viewModel.startBluetoothServer()
+        } else bluetoothPermissionLauncher.launch(bluetoothPermissions)
+    }
+    val enableBluetoothLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        viewModel.refreshBluetooth()
+        viewModel.startBluetoothServer()
+    }
+    val discoverableLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { viewModel.startBluetoothServer() }
     val locationText = when {
         location.loading -> "Finding location…"
         location.fix != null -> "${"%.5f".format(location.fix!!.latitude)}, ${"%.5f".format(location.fix!!.longitude)}"
@@ -120,6 +161,7 @@ fun ResQApp() {
                         storedPacketCount = packets.size,
                         locationText = locationText,
                         onGetLocation = getLocation,
+                        onMesh = { navController.navigate(Routes.MESH) },
                         onSos = { navController.navigate(Routes.SOS) },
                         onReport = { navController.navigate(Routes.REPORT) },
                         onMap = { navController.navigate(Routes.MAP) }
@@ -148,6 +190,26 @@ fun ResQApp() {
                             viewModel.createSos()
                             navController.popBackStack()
                         }
+                    )
+                }
+                composable(Routes.MESH) {
+                    LaunchedEffect(Unit) { ensureBluetoothPermissions() }
+                    MeshScreen(
+                        state = meshState,
+                        latestPacket = packets.firstOrNull(),
+                        onBack = { navController.popBackStack() },
+                        onEnableBluetooth = {
+                            enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                        },
+                        onMakeDiscoverable = {
+                            discoverableLauncher.launch(
+                                Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).putExtra(
+                                    BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300
+                                )
+                            )
+                        },
+                        onScan = viewModel::scanForPeers,
+                        onSend = viewModel::sendLatestPacket
                     )
                 }
                 composable(Routes.MESSAGES) { PacketHistoryScreen(packets) }

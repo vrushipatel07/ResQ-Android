@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.resq.data.model.EmergencyPacket
+import com.resq.data.model.PacketStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -20,4 +21,7 @@ interface EmergencyPacketDao {
 
     @Query("SELECT COUNT(*) FROM emergency_packets")
     fun observeCount(): Flow<Int>
+
+    @Query("UPDATE emergency_packets SET status = :status, lastForwardedAt = :time WHERE messageId = :id")
+    suspend fun updateTransferStatus(id: String, status: PacketStatus, time: Long)
 }

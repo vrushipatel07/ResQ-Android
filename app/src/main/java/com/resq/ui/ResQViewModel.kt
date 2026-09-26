@@ -11,6 +11,8 @@ import com.resq.data.repository.DeviceIdRepository
 import com.resq.data.repository.EmergencyRepository
 import com.resq.location.LocationFix
 import com.resq.location.LocationProvider
+import com.resq.mesh.bluetooth.BluetoothMeshManager
+import com.resq.mesh.bluetooth.PeerDevice
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -27,6 +29,8 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = EmergencyRepository(database.packetDao())
     private val locationProvider = LocationProvider(application)
     val deviceId = DeviceIdRepository(application).getOrCreate()
+    private val bluetooth = BluetoothMeshManager(application, repository, database.supportDao(), deviceId)
+    val meshState = bluetooth.state
 
     val packets = repository.observePackets()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -38,6 +42,15 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
     val events: SharedFlow<PacketEvent> = _events.asSharedFlow()
 
     fun hasLocationPermission() = locationProvider.hasPermission()
+
+    fun refreshBluetooth() = bluetooth.refresh()
+    fun startBluetoothServer() = bluetooth.startServer()
+    fun scanForPeers() = bluetooth.startDiscovery()
+    fun sendLatestPacket(peer: PeerDevice) {
+        val packet = packets.value.firstOrNull()
+        if (packet == null) _events.tryEmit(PacketEvent(false, "Create an SOS or report first"))
+        else bluetooth.send(packet, peer)
+    }
 
     fun refreshLocation() {
         viewModelScope.launch {
@@ -71,6 +84,11 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
                 onFailure = { _events.emit(PacketEvent(false, it.message ?: "Packet could not be saved")) }
             )
         }
+    }
+
+    override fun onCleared() {
+        bluetooth.close()
+        super.onCleared()
     }
 
     companion object {

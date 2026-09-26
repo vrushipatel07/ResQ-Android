@@ -50,4 +50,8 @@ class EmergencyRepository(private val dao: EmergencyPacketDao) {
             },
             onFailure = { Result.failure(it) }
         )
+
+    suspend fun markForwarded(messageId: String) {
+        dao.updateTransferStatus(messageId, PacketStatus.FORWARDED, System.currentTimeMillis())
+    }
 }

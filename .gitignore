@@ -7,9 +7,3 @@ captures/
 .externalNativeBuild/
 .cxx/
 app/build/
-
-*.apk
-*.aab
-*.pmtiles
-
-emergency_images/

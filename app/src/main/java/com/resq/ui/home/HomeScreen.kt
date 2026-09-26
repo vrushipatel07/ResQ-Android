@@ -27,6 +27,7 @@ fun HomeScreen(
     storedPacketCount: Int,
     locationText: String,
     onGetLocation: () -> Unit,
+    onMesh: () -> Unit,
     onSos: () -> Unit,
     onReport: () -> Unit,
     onMap: () -> Unit
@@ -65,6 +66,8 @@ fun HomeScreen(
             ActionCard("Report Emergency", Icons.Default.EditNote, Modifier.weight(1f), onReport)
             ActionCard("Offline Map", Icons.Default.Map, Modifier.weight(1f), onMap)
         }
+        Spacer(Modifier.height(10.dp))
+        ActionCard("Bluetooth Mesh Network", Icons.Default.Bluetooth, Modifier.fillMaxWidth(), onMesh)
 
         Spacer(Modifier.height(18.dp))
         Text("System Status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
@@ -72,7 +75,7 @@ fun HomeScreen(
         ResQCard(Modifier.fillMaxWidth()) {
             Row {
                 StatusItem("Nearby devices", "Not scanned yet", Icons.Default.Groups, ResQBlue, Modifier.weight(1f))
-                StatusItem("Forwarding", "Milestone 3", Icons.Default.Forward, ResQBlue, Modifier.weight(1f))
+                StatusItem("Forwarding", "Bluetooth ready", Icons.Default.Forward, ResQBlue, Modifier.weight(1f))
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .4f))
             Row {
