@@ -29,8 +29,21 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = EmergencyRepository(database.packetDao())
     private val locationProvider = LocationProvider(application)
     val deviceId = DeviceIdRepository(application).getOrCreate()
-    private val bluetooth = BluetoothMeshManager(application, repository, database.supportDao(), deviceId)
+    private val rolePreferences = application.getSharedPreferences("resq_role", 0)
+    private val _rescueMode = MutableStateFlow(rolePreferences.getBoolean("rescue_mode", false))
+    val rescueMode: StateFlow<Boolean> = _rescueMode.asStateFlow()
+    private val bluetooth = BluetoothMeshManager(
+        application,
+        repository,
+        database.supportDao(),
+        deviceId,
+        isRescueMode = { _rescueMode.value }
+    )
     val meshState = bluetooth.state
+    val forwardingLogs = database.supportDao().observeForwardingLogs()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _selectedPacketId = MutableStateFlow<String?>(null)
+    val selectedPacketId: StateFlow<String?> = _selectedPacketId.asStateFlow()
 
     val packets = repository.observePackets()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -46,10 +59,17 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshBluetooth() = bluetooth.refresh()
     fun startBluetoothServer() = bluetooth.startServer()
     fun scanForPeers() = bluetooth.startDiscovery()
-    fun sendLatestPacket(peer: PeerDevice) {
-        val packet = packets.value.firstOrNull()
+    fun selectPacket(messageId: String) { _selectedPacketId.value = messageId }
+    fun sendSelectedPacket(peer: PeerDevice) {
+        val packet = packets.value.firstOrNull { it.messageId == _selectedPacketId.value }
+            ?: packets.value.firstOrNull()
         if (packet == null) _events.tryEmit(PacketEvent(false, "Create an SOS or report first"))
         else bluetooth.send(packet, peer)
+    }
+    fun setRescueMode(enabled: Boolean) {
+        _rescueMode.value = enabled
+        rolePreferences.edit().putBoolean("rescue_mode", enabled).apply()
+        if (enabled) bluetooth.startServer()
     }
 
     fun refreshLocation() {

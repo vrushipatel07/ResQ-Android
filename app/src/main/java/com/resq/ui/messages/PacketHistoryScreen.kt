@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.resq.data.model.EmergencyPacket
+import com.resq.data.model.ForwardingLog
 import com.resq.ui.components.ResQCard
 import com.resq.ui.components.ResQHeader
 import com.resq.ui.theme.CriticalRed
@@ -22,10 +23,10 @@ import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun PacketHistoryScreen(packets: List<EmergencyPacket>) {
+fun PacketHistoryScreen(packets: List<EmergencyPacket>, logs: List<ForwardingLog>) {
     Column(Modifier.fillMaxSize().padding(horizontal = ResQDimens.page)) {
         ResQHeader("Emergency Packets")
-        if (packets.isEmpty()) {
+        if (packets.isEmpty() && logs.isEmpty()) {
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Icon(Icons.Default.Inventory2, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(52.dp))
                 Spacer(Modifier.height(12.dp))
@@ -33,9 +34,10 @@ fun PacketHistoryScreen(packets: List<EmergencyPacket>) {
                 Text("Create an SOS or emergency report.")
             }
         } else {
-            Text("${packets.size} packet(s) stored locally", style = MaterialTheme.typography.labelLarge)
-            Spacer(Modifier.height(10.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 18.dp)) {
+                item {
+                    Text("${packets.size} packet(s) stored locally", style = MaterialTheme.typography.labelLarge)
+                }
                 items(packets, key = { it.messageId }) { packet ->
                     val priorityColor = when (packet.priority.name) {
                         "CRITICAL" -> CriticalRed
@@ -54,6 +56,22 @@ fun PacketHistoryScreen(packets: List<EmergencyPacket>) {
                         Text("${"%.5f".format(packet.latitude)}, ${"%.5f".format(packet.longitude)}", style = MaterialTheme.typography.bodySmall)
                         Text(DateFormat.getDateTimeInstance().format(Date(packet.timestamp)), style = MaterialTheme.typography.bodySmall)
                         Text("${packet.status.name} • Hop ${packet.hopCount}", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+                if (logs.isNotEmpty()) {
+                    item {
+                        Text("Forwarding activity", fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 10.dp))
+                    }
+                    items(logs.take(30), key = { "log-${it.id}" }) { log ->
+                        ResQCard(Modifier.fillMaxWidth()) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(log.result.replace('_', ' '), fontWeight = FontWeight.ExtraBold)
+                                Text(log.method, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                            }
+                            Text(log.messageId, style = MaterialTheme.typography.bodySmall)
+                            Text("${log.fromDevice} → ${log.toDevice}", style = MaterialTheme.typography.bodySmall)
+                            Text(DateFormat.getDateTimeInstance().format(Date(log.timestamp)), style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
             }

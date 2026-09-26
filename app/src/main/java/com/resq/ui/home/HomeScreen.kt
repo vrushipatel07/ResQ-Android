@@ -28,6 +28,7 @@ fun HomeScreen(
     locationText: String,
     onGetLocation: () -> Unit,
     onMesh: () -> Unit,
+    onRescue: () -> Unit,
     onSos: () -> Unit,
     onReport: () -> Unit,
     onMap: () -> Unit
@@ -68,6 +69,8 @@ fun HomeScreen(
         }
         Spacer(Modifier.height(10.dp))
         ActionCard("Bluetooth Mesh Network", Icons.Default.Bluetooth, Modifier.fillMaxWidth(), onMesh)
+        Spacer(Modifier.height(10.dp))
+        ActionCard("Rescue Node Mode", Icons.Default.HealthAndSafety, Modifier.fillMaxWidth(), onRescue)
 
         Spacer(Modifier.height(18.dp))
         Text("System Status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)

@@ -3,7 +3,6 @@ package com.resq.data.repository
 import com.resq.data.db.EmergencyPacketDao
 import com.resq.data.model.*
 import com.resq.location.LocationFix
-import com.resq.mesh.packet.PacketJsonCodec
 import com.resq.mesh.packet.PacketValidator
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
@@ -42,16 +41,23 @@ class EmergencyRepository(private val dao: EmergencyPacketDao) {
         )
     }
 
-    suspend fun receiveSerializedPacket(json: String): Result<EmergencyPacket> =
-        PacketJsonCodec.decode(json).fold(
-            onSuccess = { packet ->
-                if (dao.insert(packet) == -1L) Result.failure(IllegalStateException("Duplicate message ID rejected"))
-                else Result.success(packet)
+    suspend fun receivePacket(packet: EmergencyPacket, finalDelivery: Boolean): Result<EmergencyPacket> {
+        val received = packet.copy(status = if (finalDelivery) PacketStatus.DELIVERED else PacketStatus.STORED)
+        return PacketValidator.validate(received).fold(
+            onSuccess = {
+                if (dao.insert(it) == -1L) Result.failure(IllegalStateException("Duplicate message ID rejected"))
+                else Result.success(it)
             },
             onFailure = { Result.failure(it) }
         )
+    }
 
-    suspend fun markForwarded(messageId: String) {
-        dao.updateTransferStatus(messageId, PacketStatus.FORWARDED, System.currentTimeMillis())
+    suspend fun markTransferred(messageId: String, hopCount: Int, delivered: Boolean) {
+        dao.updateTransferStatus(
+            messageId,
+            if (delivered) PacketStatus.DELIVERED else PacketStatus.FORWARDED,
+            hopCount,
+            System.currentTimeMillis()
+        )
     }
 }

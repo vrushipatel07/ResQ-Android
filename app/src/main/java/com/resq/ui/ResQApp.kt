@@ -31,6 +31,7 @@ import com.resq.ui.messages.PacketHistoryScreen
 import com.resq.ui.mesh.MeshScreen
 import com.resq.ui.placeholder.ComingSoonScreen
 import com.resq.ui.report.ReportScreen
+import com.resq.ui.rescue.RescueModeScreen
 import com.resq.ui.settings.SettingsScreen
 import com.resq.ui.sos.SosConfirmationScreen
 import com.resq.ui.theme.ResQTheme
@@ -44,6 +45,7 @@ private object Routes {
     const val MAP = "map"
     const val SETTINGS = "settings"
     const val MESH = "mesh"
+    const val RESCUE = "rescue"
 }
 
 private data class BottomDestination(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
@@ -57,6 +59,9 @@ fun ResQApp() {
     val location by viewModel.location.collectAsState()
     val packets by viewModel.packets.collectAsState()
     val meshState by viewModel.meshState.collectAsState()
+    val forwardingLogs by viewModel.forwardingLogs.collectAsState()
+    val rescueMode by viewModel.rescueMode.collectAsState()
+    val selectedPacketId by viewModel.selectedPacketId.collectAsState()
     var themeMode by remember { mutableStateOf(ThemeMode.SYSTEM) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -162,6 +167,7 @@ fun ResQApp() {
                         locationText = locationText,
                         onGetLocation = getLocation,
                         onMesh = { navController.navigate(Routes.MESH) },
+                        onRescue = { navController.navigate(Routes.RESCUE) },
                         onSos = { navController.navigate(Routes.SOS) },
                         onReport = { navController.navigate(Routes.REPORT) },
                         onMap = { navController.navigate(Routes.MAP) }
@@ -196,7 +202,8 @@ fun ResQApp() {
                     LaunchedEffect(Unit) { ensureBluetoothPermissions() }
                     MeshScreen(
                         state = meshState,
-                        latestPacket = packets.firstOrNull(),
+                        packets = packets,
+                        selectedPacketId = selectedPacketId,
                         onBack = { navController.popBackStack() },
                         onEnableBluetooth = {
                             enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
@@ -209,10 +216,20 @@ fun ResQApp() {
                             )
                         },
                         onScan = viewModel::scanForPeers,
-                        onSend = viewModel::sendLatestPacket
+                        onSelectPacket = viewModel::selectPacket,
+                        onSend = viewModel::sendSelectedPacket
                     )
                 }
-                composable(Routes.MESSAGES) { PacketHistoryScreen(packets) }
+                composable(Routes.RESCUE) {
+                    LaunchedEffect(Unit) { ensureBluetoothPermissions() }
+                    RescueModeScreen(
+                        enabled = rescueMode,
+                        packets = packets,
+                        onEnabledChange = viewModel::setRescueMode,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Routes.MESSAGES) { PacketHistoryScreen(packets, forwardingLogs) }
                 composable(Routes.MAP) { ComingSoonScreen("Offline Map", "Milestone 7") }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(viewModel.deviceId, themeMode) { themeMode = it }

@@ -9,7 +9,8 @@ import com.resq.data.db.SupportDao
 import com.resq.data.model.EmergencyPacket
 import com.resq.data.model.ForwardingLog
 import com.resq.data.repository.EmergencyRepository
-import com.resq.mesh.packet.PacketJsonCodec
+import com.resq.mesh.packet.MeshAck
+import com.resq.mesh.packet.MeshProtocol
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,7 +34,8 @@ class BluetoothMeshManager(
     context: Context,
     private val emergencyRepository: EmergencyRepository,
     private val supportDao: SupportDao,
-    private val localDeviceId: String
+    private val localDeviceId: String,
+    private val isRescueMode: () -> Boolean
 ) {
     private val appContext = context.applicationContext
     private val adapter = appContext.getSystemService(BluetoothManager::class.java)?.adapter
@@ -130,25 +132,53 @@ class BluetoothMeshManager(
         scope.launch {
             _state.value = _state.value.copy(status = "Sending ${packet.messageId} to ${peer.name}…", error = null)
             bluetooth.cancelDiscovery()
+            val now = System.currentTimeMillis()
+            val outbound = packet.copy(
+                hopCount = packet.hopCount + 1,
+                status = com.resq.data.model.PacketStatus.FORWARDED,
+                lastForwardedAt = now
+            )
             val result = runCatching {
                 val device = bluetooth.getRemoteDevice(peer.address)
                 device.createRfcommSocketToServiceRecord(SERVICE_UUID).use { socket ->
                     socket.connect()
-                    socket.outputStream.bufferedWriter().use { writer ->
-                        writer.write(PacketJsonCodec.encode(packet))
-                        writer.newLine()
-                        writer.flush()
+                    val writer = socket.outputStream.bufferedWriter()
+                    writer.write(MeshProtocol.encodePacket(outbound, localDeviceId))
+                    writer.newLine()
+                    writer.flush()
+                    val timeoutJob = launch {
+                        delay(ACK_TIMEOUT_MS)
+                        runCatching { socket.close() }
                     }
+                    val ackLine = try {
+                        socket.inputStream.bufferedReader().readLine()
+                            ?: error("Receiver closed without acknowledgement")
+                    } finally {
+                        timeoutJob.cancel()
+                    }
+                    val ack = MeshProtocol.decodeAck(ackLine).getOrThrow()
+                    require(ack.messageId == packet.messageId) { "Acknowledgement ID mismatch" }
+                    require(ack.accepted) { ack.reason ?: "Receiver rejected packet" }
+                    ack
                 }
             }
-            val now = System.currentTimeMillis()
             result.fold(
-                onSuccess = {
-                    emergencyRepository.markForwarded(packet.messageId)
+                onSuccess = { ack ->
+                    emergencyRepository.markTransferred(packet.messageId, outbound.hopCount, ack.finalDelivery)
                     supportDao.insertForwardingLog(
-                        ForwardingLog(messageId = packet.messageId, fromDevice = localDeviceId, toDevice = peer.address, method = "BLUETOOTH", timestamp = now, result = "SENT")
+                        ForwardingLog(
+                            messageId = packet.messageId,
+                            fromDevice = localDeviceId,
+                            toDevice = ack.receiverId,
+                            method = "BLUETOOTH",
+                            timestamp = now,
+                            result = if (ack.finalDelivery) "ACK_DELIVERED" else "ACK_FORWARDED"
+                        )
                     )
-                    _state.value = _state.value.copy(status = "${packet.messageId} sent to ${peer.name}", error = null)
+                    _state.value = _state.value.copy(
+                        status = if (ack.finalDelivery) "${packet.messageId} delivered to Rescue" else "${packet.messageId} acknowledged by ${peer.name}",
+                        error = null
+                    )
                 },
                 onFailure = { error ->
                     supportDao.insertForwardingLog(
@@ -163,27 +193,59 @@ class BluetoothMeshManager(
     @SuppressLint("MissingPermission")
     private suspend fun receive(socket: BluetoothSocket) {
         val remote = runCatching { socket.remoteDevice.name ?: socket.remoteDevice.address }.getOrDefault("Nearby device")
-        val json = runCatching {
-            socket.use { it.inputStream.bufferedReader().readLine() }
-        }.getOrElse {
-            _state.value = _state.value.copy(error = it.message ?: "Could not read incoming packet")
-            return
-        }
-        if (json.isNullOrBlank() || json.length > MAX_PACKET_CHARS) {
-            _state.value = _state.value.copy(error = "Malformed or oversized packet rejected")
-            return
-        }
-        emergencyRepository.receiveSerializedPacket(json).fold(
-            onSuccess = { packet ->
-                supportDao.insertForwardingLog(
-                    ForwardingLog(messageId = packet.messageId, fromDevice = packet.senderId, toDevice = localDeviceId, method = "BLUETOOTH", timestamp = System.currentTimeMillis(), result = "RECEIVED")
-                )
-                _state.value = _state.value.copy(status = "Received ${packet.messageId} from $remote", receivedPacketId = packet.messageId, error = null)
-            },
-            onFailure = { error ->
-                _state.value = _state.value.copy(error = error.message ?: "Incoming packet rejected", status = "Packet not stored")
+        socket.use { connected ->
+            val line = runCatching { connected.inputStream.bufferedReader().readLine() }.getOrElse {
+                _state.value = _state.value.copy(error = it.message ?: "Could not read incoming packet")
+                return
             }
-        )
+            if (line.isNullOrBlank() || line.length > MAX_PACKET_CHARS) {
+                sendAck(connected, MeshAck("UNKNOWN", false, false, localDeviceId, "Malformed or oversized packet"))
+                _state.value = _state.value.copy(error = "Malformed or oversized packet rejected")
+                return
+            }
+            val decoded = MeshProtocol.decodePacket(line)
+            if (decoded.isFailure) {
+                sendAck(connected, MeshAck("UNKNOWN", false, false, localDeviceId, "Malformed mesh packet"))
+                _state.value = _state.value.copy(error = "Malformed mesh packet rejected")
+                return
+            }
+            val meshMessage = decoded.getOrThrow()
+            val packet = meshMessage.packet
+            val finalDelivery = isRescueMode()
+            emergencyRepository.receivePacket(packet, finalDelivery).fold(
+                onSuccess = { stored ->
+                    sendAck(connected, MeshAck(stored.messageId, true, finalDelivery, localDeviceId))
+                    supportDao.insertForwardingLog(
+                        ForwardingLog(
+                            messageId = stored.messageId,
+                            fromDevice = meshMessage.forwarderId,
+                            toDevice = localDeviceId,
+                            method = "BLUETOOTH",
+                            timestamp = System.currentTimeMillis(),
+                            result = if (finalDelivery) "RESCUE_RECEIVED" else "RECEIVED"
+                        )
+                    )
+                    _state.value = _state.value.copy(
+                        status = if (finalDelivery) "Rescue received ${stored.messageId}" else "Received ${stored.messageId} from $remote",
+                        receivedPacketId = stored.messageId,
+                        error = null
+                    )
+                },
+                onFailure = { error ->
+                    sendAck(connected, MeshAck(packet.messageId, false, finalDelivery, localDeviceId, error.message))
+                    _state.value = _state.value.copy(error = error.message ?: "Incoming packet rejected", status = "Packet not stored")
+                }
+            )
+        }
+    }
+
+    private fun sendAck(socket: BluetoothSocket, ack: MeshAck) {
+        runCatching {
+            val writer = socket.outputStream.bufferedWriter()
+            writer.write(MeshProtocol.encodeAck(ack))
+            writer.newLine()
+            writer.flush()
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -214,5 +276,6 @@ class BluetoothMeshManager(
         const val SERVICE_NAME = "ResQ Emergency Mesh"
         val SERVICE_UUID: UUID = UUID.fromString("4c0f2f96-907d-4a2b-a537-4dbd9bd5b278")
         private const val MAX_PACKET_CHARS = 8_192
+        private const val ACK_TIMEOUT_MS = 15_000L
     }
 }

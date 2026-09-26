@@ -23,13 +23,16 @@ import com.resq.ui.theme.SafeGreen
 @Composable
 fun MeshScreen(
     state: MeshUiState,
-    latestPacket: EmergencyPacket?,
+    packets: List<EmergencyPacket>,
+    selectedPacketId: String?,
     onBack: () -> Unit,
     onEnableBluetooth: () -> Unit,
     onMakeDiscoverable: () -> Unit,
     onScan: () -> Unit,
+    onSelectPacket: (String) -> Unit,
     onSend: (PeerDevice) -> Unit
 ) {
+    val selectedPacket = packets.firstOrNull { it.messageId == selectedPacketId } ?: packets.firstOrNull()
     Column(Modifier.fillMaxSize().padding(horizontal = ResQDimens.page)) {
         ResQHeader("Bluetooth Mesh", onBack)
         ResQCard(Modifier.fillMaxWidth()) {
@@ -64,10 +67,24 @@ fun MeshScreen(
         }
         Spacer(Modifier.height(14.dp))
         Text("Packet ready to send", fontWeight = FontWeight.ExtraBold)
-        Text(
-            latestPacket?.let { "${it.messageId} • ${it.type.label} • ${it.status}" } ?: "Create an SOS or report first",
-            style = MaterialTheme.typography.bodySmall
-        )
+        if (packets.isEmpty()) {
+            Text("Create an SOS or report first", style = MaterialTheme.typography.bodySmall)
+        } else {
+            ResQCard(Modifier.fillMaxWidth()) {
+                packets.take(4).forEach { packet ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = packet.messageId == selectedPacket?.messageId,
+                            onClick = { onSelectPacket(packet.messageId) }
+                        )
+                        Column {
+                            Text(packet.messageId, fontWeight = FontWeight.ExtraBold)
+                            Text("${packet.type.label} • ${packet.status} • Hop ${packet.hopCount}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(14.dp))
         Text("Nearby / paired phones", fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(8.dp))
@@ -87,7 +104,7 @@ fun MeshScreen(
                             }
                             Button(
                                 onClick = { onSend(peer) },
-                                enabled = peer.paired && latestPacket != null
+                                enabled = peer.paired && selectedPacket != null
                             ) { Text("SEND") }
                         }
                     }

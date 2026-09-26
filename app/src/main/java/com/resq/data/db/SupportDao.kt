@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import com.resq.data.model.DeviceState
 import com.resq.data.model.ForwardingLog
 import com.resq.data.model.MapMarker
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SupportDao {
@@ -17,4 +18,7 @@ interface SupportDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertDeviceState(state: DeviceState)
+
+    @androidx.room.Query("SELECT * FROM forwarding_log ORDER BY timestamp DESC")
+    fun observeForwardingLogs(): Flow<List<ForwardingLog>>
 }
