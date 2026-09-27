@@ -1,6 +1,8 @@
 package com.resq.ui
 
 import android.app.Application
+import android.content.Context
+import android.os.BatteryManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -13,6 +15,10 @@ import com.resq.location.LocationFix
 import com.resq.location.LocationProvider
 import com.resq.mesh.bluetooth.BluetoothMeshManager
 import com.resq.mesh.bluetooth.PeerDevice
+import com.resq.mesh.wifi.WifiDirectManager
+import com.resq.mesh.wifi.WifiPeer
+import com.resq.ai.decision.*
+import com.resq.mesh.packet.MeshProtocol
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -40,6 +46,14 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
         isRescueMode = { _rescueMode.value }
     )
     val meshState = bluetooth.state
+    private val wifi = WifiDirectManager(
+        application,
+        repository,
+        database.supportDao(),
+        deviceId,
+        isRescueMode = { _rescueMode.value }
+    )
+    val wifiState = wifi.state
     val forwardingLogs = database.supportDao().observeForwardingLogs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _selectedPacketId = MutableStateFlow<String?>(null)
@@ -59,12 +73,45 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshBluetooth() = bluetooth.refresh()
     fun startBluetoothServer() = bluetooth.startServer()
     fun scanForPeers() = bluetooth.startDiscovery()
+    fun discoverWifiPeers() = wifi.discoverPeers()
+    fun startWifiHost() = wifi.startHost()
     fun selectPacket(messageId: String) { _selectedPacketId.value = messageId }
     fun sendSelectedPacket(peer: PeerDevice) {
         val packet = packets.value.firstOrNull { it.messageId == _selectedPacketId.value }
             ?: packets.value.firstOrNull()
         if (packet == null) _events.tryEmit(PacketEvent(false, "Create an SOS or report first"))
         else bluetooth.send(packet, peer)
+    }
+    fun sendSelectedPacketWifi(peer: WifiPeer) {
+        val packet = packets.value.firstOrNull { it.messageId == _selectedPacketId.value }
+            ?: packets.value.firstOrNull()
+        if (packet == null) _events.tryEmit(PacketEvent(false, "Create an SOS or report first"))
+        else wifi.connectAndSend(peer, packet)
+    }
+
+    fun batteryPercent(): Int =
+        (getApplication<Application>().getSystemService(Context.BATTERY_SERVICE) as BatteryManager)
+            .getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).coerceIn(0, 100)
+
+    fun currentDecision(): DecisionResult {
+        val packet = packets.value.firstOrNull { it.messageId == _selectedPacketId.value } ?: packets.value.firstOrNull()
+        if (packet == null) return DecisionResult(
+            CommunicationMethod.STORE_RETRY,
+            "Create an emergency packet before choosing a communication path.",
+            listOf("No packet selected")
+        )
+        val logs = forwardingLogs.value.take(20)
+        return CommunicationDecisionEngine.decide(
+            DecisionInput(
+                priority = packet.priority,
+                packetSizeBytes = MeshProtocol.encodePacket(packet, deviceId).toByteArray().size,
+                batteryPercent = batteryPercent(),
+                bluetoothPeerAvailable = meshState.value.peers.any { it.paired },
+                wifiPeerAvailable = wifiState.value.peers.isNotEmpty() || wifiState.value.connected,
+                bluetoothRecentFailures = logs.count { it.method == "BLUETOOTH" && it.result == "FAILED" },
+                wifiRecentFailures = logs.count { it.method == "WIFI_LOCAL" && it.result == "FAILED" }
+            )
+        )
     }
     fun setRescueMode(enabled: Boolean) {
         _rescueMode.value = enabled
@@ -108,6 +155,7 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         bluetooth.close()
+        wifi.close()
         super.onCleared()
     }
 

@@ -32,6 +32,8 @@ import com.resq.ui.mesh.MeshScreen
 import com.resq.ui.placeholder.ComingSoonScreen
 import com.resq.ui.report.ReportScreen
 import com.resq.ui.rescue.RescueModeScreen
+import com.resq.ui.wifi.WifiDirectScreen
+import com.resq.ui.decision.DecisionScreen
 import com.resq.ui.settings.SettingsScreen
 import com.resq.ui.sos.SosConfirmationScreen
 import com.resq.ui.theme.ResQTheme
@@ -46,6 +48,8 @@ private object Routes {
     const val SETTINGS = "settings"
     const val MESH = "mesh"
     const val RESCUE = "rescue"
+    const val WIFI = "wifi"
+    const val DECISION = "decision"
 }
 
 private data class BottomDestination(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
@@ -62,6 +66,7 @@ fun ResQApp() {
     val forwardingLogs by viewModel.forwardingLogs.collectAsState()
     val rescueMode by viewModel.rescueMode.collectAsState()
     val selectedPacketId by viewModel.selectedPacketId.collectAsState()
+    val wifiState by viewModel.wifiState.collectAsState()
     var themeMode by remember { mutableStateOf(ThemeMode.SYSTEM) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -107,6 +112,20 @@ fun ResQApp() {
     val discoverableLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { viewModel.startBluetoothServer() }
+    val wifiPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+    } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    val wifiPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (!permissions.values.all { it }) Toast.makeText(context, "Nearby Wi-Fi permission is required", Toast.LENGTH_LONG).show()
+    }
+    val ensureWifiPermissions = {
+        val granted = wifiPermissions.all {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
+        if (!granted) wifiPermissionLauncher.launch(wifiPermissions)
+    }
     val locationText = when {
         location.loading -> "Finding location…"
         location.fix != null -> "${"%.5f".format(location.fix!!.latitude)}, ${"%.5f".format(location.fix!!.longitude)}"
@@ -168,6 +187,8 @@ fun ResQApp() {
                         onGetLocation = getLocation,
                         onMesh = { navController.navigate(Routes.MESH) },
                         onRescue = { navController.navigate(Routes.RESCUE) },
+                        onWifi = { navController.navigate(Routes.WIFI) },
+                        onDecision = { navController.navigate(Routes.DECISION) },
                         onSos = { navController.navigate(Routes.SOS) },
                         onReport = { navController.navigate(Routes.REPORT) },
                         onMap = { navController.navigate(Routes.MAP) }
@@ -227,6 +248,27 @@ fun ResQApp() {
                         packets = packets,
                         onEnabledChange = viewModel::setRescueMode,
                         onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Routes.WIFI) {
+                    LaunchedEffect(Unit) { ensureWifiPermissions() }
+                    WifiDirectScreen(
+                        state = wifiState,
+                        packets = packets,
+                        selectedPacketId = selectedPacketId,
+                        onBack = { navController.popBackStack() },
+                        onHost = viewModel::startWifiHost,
+                        onDiscover = viewModel::discoverWifiPeers,
+                        onSelectPacket = viewModel::selectPacket,
+                        onSend = viewModel::sendSelectedPacketWifi
+                    )
+                }
+                composable(Routes.DECISION) {
+                    DecisionScreen(
+                        decision = viewModel.currentDecision(),
+                        onBack = { navController.popBackStack() },
+                        onOpenBluetooth = { navController.navigate(Routes.MESH) },
+                        onOpenWifi = { navController.navigate(Routes.WIFI) }
                     )
                 }
                 composable(Routes.MESSAGES) { PacketHistoryScreen(packets, forwardingLogs) }

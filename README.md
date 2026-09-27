@@ -1,134 +1,114 @@
-# ResQ Android - Milestone 4
+# ResQ Android - Milestone 5
 
-Milestone 4 completes the manual three-phone Bluetooth demo path:
+Milestone 5 preserves the proven Bluetooth A -> B -> C path and adds a real Wi-Fi Direct/TCP alternative plus a transparent adaptive communication decision engine.
 
-```text
-Phone A -> Phone B (relay) -> Phone C (Rescue)
-```
+## Added in this milestone
 
-It keeps all Milestone 1-3 functionality and adds packet selection, hop-count updates, per-hop acknowledgements, persisted forwarding activity, Rescue Mode, and final delivery status.
+- Wi-Fi Direct peer discovery and group hosting
+- TCP emergency transfer over the Wi-Fi P2P link
+- Same packet validation, Room storage, duplicate rejection, acknowledgements, hop counts, Rescue Mode, and forwarding log used by Bluetooth
+- Actual device battery percentage
+- Deterministic Bluetooth / Wi-Fi Local / Store-Retry decision
+- Decision inputs: priority, serialized packet size, battery, Bluetooth peer, Wi-Fi peer, and recent failures
+- Unit tests for key decision branches
 
-## Status rules
+Wi-Fi Direct does not use normal internet. Android requires the `INTERNET` manifest permission because the local P2P transport uses Java sockets.
 
-- New local SOS/report: `STORED`, hop 0
-- A sends to B and B acknowledges: A becomes `FORWARDED`, hop 1
-- B stores the received packet: `STORED`, hop 1
-- B sends to C/Rescue: B becomes `DELIVERED`, hop 2 after Rescue acknowledgement
-- C in Rescue Mode stores the packet: `DELIVERED`, hop 2
-- Failed send: local packet remains available for retry
-- Duplicate message ID: receiver rejects the second insert
+## Install
 
-Every SENT/RECEIVED/FAILED/ACK event is persisted in `forwarding_log` and shown under **Messages > Forwarding activity**.
+1. Extract `ResQ_Milestone_5_Android.zip`.
+2. Open the inner `resq-android` folder in Android Studio.
+3. Use JVM 21 and sync Gradle.
+4. Install the same build on all test phones.
+5. Keep the working Milestone 4 ZIP as a Bluetooth-only fallback.
 
-## Install the same build on all three phones
+## Permissions and phone settings
 
-1. Extract `ResQ_Milestone_4_Android.zip`.
-2. Open its inner `resq-android` folder in Android Studio.
-3. Select JVM 21 and wait for Gradle sync.
-4. Install using Android Studio **Run** on Phone A.
-5. Repeat on Phone B.
-6. Repeat on Phone C.
-7. Pair A with B and pair B with C in Android Bluetooth settings.
+- Grant **Nearby devices** and **Nearby Wi-Fi devices** when prompted.
+- Keep phone Location enabled during Wi-Fi Direct peer discovery. Android's Wi-Fi P2P discovery APIs require Location Mode even on newer phones.
+- Wi-Fi must be enabled, but the phones do not need a router, hotspot, mobile data, or internet.
 
-Pairing A directly with C is optional. Keeping only the required neighbor pairings makes the multi-hop demonstration clearer.
+## Wi-Fi Direct test: A -> B
 
-## Prepare the phones
+### Phone B - receiver/group owner
 
-### Phone C - Rescue
+1. Open **Wi-Fi Local**.
+2. Grant permission.
+3. Tap **HOST / RECEIVE**.
+4. Wait for `Wi-Fi receiver listening on port 8988`.
+5. Leave ResQ open.
 
-1. Open ResQ.
-2. Open **Rescue Node Mode**.
-3. Grant Nearby devices permission.
-4. Turn on the **Rescue node active** switch.
-5. Open **Bluetooth Mesh Network**, tap **BE VISIBLE**, and confirm it says Listening.
-6. Keep ResQ open.
+### Phone A - sender/client
 
-### Phone B - relay
+1. Create a fresh SOS or report.
+2. Open **Wi-Fi Local**.
+3. Select the packet.
+4. Tap **DISCOVER**.
+5. Select Phone B and tap **SEND**.
+6. Accept any system Wi-Fi Direct connection dialog.
 
-1. Open **Bluetooth Mesh Network**.
-2. Grant permission, tap **BE VISIBLE**, and confirm Listening.
-3. Keep Rescue Mode switched off.
+### Verify
 
-### Phone A - source
+- A receives an acknowledgement.
+- B stores the packet with hop 1.
+- Messages shows `WIFI LOCAL` forwarding activity.
+- Sending again is rejected as a duplicate.
+- Normal internet can remain disabled.
 
-1. Get GPS and create a fresh SOS/report.
-2. Open **Bluetooth Mesh Network**.
-3. Select that packet in **Packet ready to send**.
+## Wi-Fi Direct A -> B -> C/Rescue
 
-## Exact A -> B -> C test
+1. Complete A -> B above.
+2. Disconnect/remove the A-B Wi-Fi Direct group in phone Wi-Fi Direct settings if Android keeps it active.
+3. On C, enable Rescue Mode and tap **HOST / RECEIVE** in Wi-Fi Local.
+4. On B, open Wi-Fi Local and select the received packet.
+5. Discover C and send.
+6. C stores `DELIVERED`, hop 2; B records `ACK DELIVERED`.
 
-### Hop 1: A -> B
+For the most reliable 3-5 minute presentation, Bluetooth remains the primary multi-hop path. Demonstrate Wi-Fi Direct as the working alternative path separately unless all three phone models handle P2P group switching consistently.
 
-1. On A, tap Scan.
-2. Find paired Phone B.
-3. Tap Send.
-4. A should show that B acknowledged the packet.
-5. On B, open Messages and confirm the same packet is `STORED`, hop 1.
+## Decision Engine test
 
-### Hop 2: B -> C/Rescue
+1. Create/select an emergency packet.
+2. Open Bluetooth Mesh once so paired peers are loaded.
+3. Open Wi-Fi Local and run Discover once so Wi-Fi peers are loaded.
+4. Open **Decision Engine** from Home.
+5. Inspect the displayed priority, byte size, battery, peer availability, and failure counts.
 
-1. On B, return to Bluetooth Mesh.
-2. Select the received packet.
-3. Tap Scan and find paired Phone C.
-4. Tap Send.
-5. B should show `delivered to Rescue`.
-6. On C, open Rescue Mode.
-7. Confirm the emergency card appears as delivered, hop 2.
+Expected rules:
 
-### Audit trail
+- No peer -> `STORE RETRY`
+- Critical compact packet + paired Bluetooth peer -> `BLUETOOTH`
+- Two recent Bluetooth failures + Wi-Fi peer -> `WIFI LOCAL`
+- Low battery + Bluetooth peer -> `BLUETOOTH`
+- Packet larger than 8,192 bytes + Wi-Fi peer -> `WIFI LOCAL`
+- Repeated Wi-Fi failure + Bluetooth peer -> `BLUETOOTH`
 
-Open **Messages** on B and C. The forwarding timeline should show:
-
-```text
-B: RECEIVED -> ACK DELIVERED
-C: RESCUE RECEIVED
-```
-
-Phone A records `ACK FORWARDED` for the first hop.
-
-## Acknowledgement protocol
-
-Each RFCOMM connection exchanges one packet envelope and one acknowledgement envelope:
-
-```text
-PACKET { forwarderId, payload }
-ACK { messageId, accepted, finalDelivery, receiverId, reason }
-```
-
-The sender updates its Room record only after receiving a valid acknowledgement with the matching message ID. An acknowledgement timeout closes the socket after 15 seconds and leaves the packet available for retry.
-
-## Failure tests
-
-- C not listening: B fails and keeps its packet.
-- C not in Rescue Mode: C stores the packet as a relay; B receives a normal forwarded acknowledgement rather than final delivery.
-- Duplicate send: receiver rejects the duplicate `messageId`.
-- Internet disabled on all phones: the complete A -> B -> C path still works.
-- Restart any phone: packets and forwarding logs remain in Room.
+All normal emergency packets are deliberately capped at 200 text characters and are compact, so Bluetooth usually remains recommended unless it fails repeatedly.
 
 ## Important source paths
 
 ```text
 app/src/main/java/com/resq/
+  ai/decision/CommunicationDecisionEngine.kt
+  mesh/wifi/WifiDirectManager.kt
   mesh/bluetooth/BluetoothMeshManager.kt
   mesh/packet/MeshProtocol.kt
-  ui/mesh/MeshScreen.kt
-  ui/rescue/RescueModeScreen.kt
-  ui/messages/PacketHistoryScreen.kt
-  data/db/EmergencyPacketDao.kt
-  data/db/SupportDao.kt
-  data/repository/EmergencyRepository.kt
+  ui/decision/DecisionScreen.kt
+  ui/wifi/WifiDirectScreen.kt
+  ui/ResQViewModel.kt
 ```
 
 ## Troubleshooting
 
-- **Peer missing:** pair phones in Android settings, make the receiving phone visible, then scan again.
-- **Connection refused:** open ResQ Bluetooth Mesh on the receiving phone and wait for Listening.
-- **Receiver rejected packet:** check whether that message ID already exists on the receiver.
-- **Phone C stores instead of delivering:** enable Rescue Node Mode before B sends.
-- **Wrong packet selected:** choose the intended message ID with the radio button on the Mesh screen.
-- **Nearby devices permission denied:** Android Settings > Apps > ResQ > Permissions > Nearby devices > Allow.
-- **Gradle JVM error:** use JVM 21, not JVM 25.
+- **No Wi-Fi peers:** enable Wi-Fi and phone Location on both devices; receiver taps Host first, then sender taps Discover.
+- **Error reason 2 / BUSY:** turn Wi-Fi off/on, remove the old Wi-Fi Direct group, reopen ResQ, and retry.
+- **Sender becomes group owner:** remove the existing group, make the receiver tap Host first, then connect from sender.
+- **TCP connection refused:** wait until receiver explicitly shows `listening on port 8988`.
+- **Permission denied:** Android Settings > Apps > ResQ > Permissions > Nearby Wi-Fi devices > Allow.
+- **Phone vendor blocks P2P:** keep Bluetooth as the demo path; Wi-Fi Direct support varies by vendor firmware.
+- **Decision still says Store Retry:** load peers by opening/scanning the relevant transport screen first.
+- **Gradle JVM error:** select JVM 21, not JVM 25.
 
 ## Scope note
 
-Milestone 4 uses deliberate manual forwarding on Phone B so the judges can clearly observe store-and-forward behavior. Automated retry/forwarding and adaptive Bluetooth/Wi-Fi selection begin in Milestone 5.
+Milestone 5 makes the communication choice deterministic and transparent. Automatic background retry and route scheduling are not enabled yet; the packet remains safe in Room and the user initiates retry from the relevant transport screen.

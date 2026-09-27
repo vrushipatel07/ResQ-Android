@@ -29,6 +29,8 @@ fun HomeScreen(
     onGetLocation: () -> Unit,
     onMesh: () -> Unit,
     onRescue: () -> Unit,
+    onWifi: () -> Unit,
+    onDecision: () -> Unit,
     onSos: () -> Unit,
     onReport: () -> Unit,
     onMap: () -> Unit
@@ -71,6 +73,11 @@ fun HomeScreen(
         ActionCard("Bluetooth Mesh Network", Icons.Default.Bluetooth, Modifier.fillMaxWidth(), onMesh)
         Spacer(Modifier.height(10.dp))
         ActionCard("Rescue Node Mode", Icons.Default.HealthAndSafety, Modifier.fillMaxWidth(), onRescue)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ActionCard("Wi-Fi Local", Icons.Default.Wifi, Modifier.weight(1f), onWifi)
+            ActionCard("Decision Engine", Icons.Default.Route, Modifier.weight(1f), onDecision)
+        }
 
         Spacer(Modifier.height(18.dp))
         Text("System Status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
