@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.resq.data.model.EmergencyDraft
 import com.resq.data.model.EmergencyType
+import com.resq.ai.speech.SpeechUiState
 import com.resq.ui.components.ResQCard
 import com.resq.ui.components.ResQHeader
 import com.resq.ui.theme.ResQDimens
@@ -26,11 +27,16 @@ fun ReportScreen(
     locationText: String,
     hasLocation: Boolean,
     onGetLocation: () -> Unit,
+    speechState: SpeechUiState,
+    onSpeak: () -> Unit,
     onBack: () -> Unit,
     onContinue: (EmergencyDraft) -> Unit
 ) {
     var selected by remember { mutableStateOf(EmergencyType.FLOOD) }
     var description by remember { mutableStateOf("") }
+    LaunchedEffect(speechState.session, speechState.transcript) {
+        if (speechState.transcript.isNotBlank()) description = speechState.transcript.take(200)
+    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = ResQDimens.page)
@@ -78,13 +84,19 @@ fun ReportScreen(
             shape = RoundedCornerShape(14.dp)
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Default.Mic, null); Spacer(Modifier.width(6.dp)); Text("Speak")
+            OutlinedButton(onClick = onSpeak, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Mic, null); Spacer(Modifier.width(6.dp)); Text(if (speechState.listening) "Listening…" else "Speak")
             }
             OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.weight(1f)) {
                 Icon(Icons.Default.AddAPhoto, null); Spacer(Modifier.width(6.dp)); Text("Add Image")
             }
         }
+        Text(
+            if (speechState.onDevice) "On-device speech recognition" else "Offline-preferred speech; typed text is always available",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        speechState.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(18.dp))
         Text("Location", fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(8.dp))
@@ -108,7 +120,7 @@ fun ReportScreen(
             enabled = description.isNotBlank() && hasLocation,
             modifier = Modifier.fillMaxWidth().height(54.dp),
             shape = RoundedCornerShape(14.dp)
-        ) { Text("SAVE EMERGENCY  →", fontWeight = FontWeight.ExtraBold) }
+        ) { Text("ANALYZE EMERGENCY  →", fontWeight = FontWeight.ExtraBold) }
         Spacer(Modifier.height(24.dp))
     }
 }

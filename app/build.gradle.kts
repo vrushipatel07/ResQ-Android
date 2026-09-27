@@ -13,8 +13,8 @@ android {
         applicationId = "com.resq"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0-m5"
+        versionCode = 6
+        versionName = "0.6.0-m6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

@@ -34,6 +34,7 @@ import com.resq.ui.report.ReportScreen
 import com.resq.ui.rescue.RescueModeScreen
 import com.resq.ui.wifi.WifiDirectScreen
 import com.resq.ui.decision.DecisionScreen
+import com.resq.ui.ai.AiAnalysisScreen
 import com.resq.ui.settings.SettingsScreen
 import com.resq.ui.sos.SosConfirmationScreen
 import com.resq.ui.theme.ResQTheme
@@ -50,6 +51,7 @@ private object Routes {
     const val RESCUE = "rescue"
     const val WIFI = "wifi"
     const val DECISION = "decision"
+    const val AI = "ai"
 }
 
 private data class BottomDestination(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
@@ -67,6 +69,8 @@ fun ResQApp() {
     val rescueMode by viewModel.rescueMode.collectAsState()
     val selectedPacketId by viewModel.selectedPacketId.collectAsState()
     val wifiState by viewModel.wifiState.collectAsState()
+    val speechState by viewModel.speechState.collectAsState()
+    val analysisState by viewModel.analysis.collectAsState()
     var themeMode by remember { mutableStateOf(ThemeMode.SYSTEM) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -125,6 +129,18 @@ fun ResQApp() {
             ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
         }
         if (!granted) wifiPermissionLauncher.launch(wifiPermissions)
+    }
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) viewModel.startSpeechInput()
+        else Toast.makeText(context, "Microphone permission denied; type the emergency instead", Toast.LENGTH_LONG).show()
+    }
+    val startSpeech = {
+        if (speechState.listening) viewModel.stopSpeechInput()
+        else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            viewModel.startSpeechInput()
+        } else audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
     val locationText = when {
         location.loading -> "Finding location…"
@@ -199,10 +215,25 @@ fun ResQApp() {
                         locationText = locationText,
                         hasLocation = location.fix != null,
                         onGetLocation = getLocation,
+                        speechState = speechState,
+                        onSpeak = startSpeech,
                         onBack = { navController.popBackStack() },
                         onContinue = {
-                            viewModel.createReport(it)
-                            navController.popBackStack()
+                            viewModel.analyzeDraft(it)
+                            navController.navigate(Routes.AI)
+                        }
+                    )
+                }
+                composable(Routes.AI) {
+                    AiAnalysisScreen(
+                        state = analysisState,
+                        locationText = locationText,
+                        onBack = { navController.popBackStack() },
+                        onCreatePacket = {
+                            viewModel.createAnalyzedPacket()
+                            navController.navigate(Routes.MESSAGES) {
+                                popUpTo(Routes.HOME)
+                            }
                         }
                     )
                 }

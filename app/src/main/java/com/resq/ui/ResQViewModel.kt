@@ -18,9 +18,13 @@ import com.resq.mesh.bluetooth.PeerDevice
 import com.resq.mesh.wifi.WifiDirectManager
 import com.resq.mesh.wifi.WifiPeer
 import com.resq.ai.decision.*
+import com.resq.ai.classifier.ClassificationResult
+import com.resq.ai.classifier.EmergencyClassifier
+import com.resq.ai.speech.SpeechInputManager
 import com.resq.mesh.packet.MeshProtocol
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 data class LocationUiState(
     val loading: Boolean = false,
@@ -30,10 +34,20 @@ data class LocationUiState(
 
 data class PacketEvent(val success: Boolean, val message: String)
 
+data class AnalysisUiState(
+    val processing: Boolean = false,
+    val completedSteps: List<String> = emptyList(),
+    val draft: EmergencyDraft? = null,
+    val result: ClassificationResult? = null,
+    val error: String? = null
+)
+
 class ResQViewModel(application: Application) : AndroidViewModel(application) {
     private val database = ResQDatabase.getInstance(application)
     private val repository = EmergencyRepository(database.packetDao())
     private val locationProvider = LocationProvider(application)
+    private val speechInput = SpeechInputManager(application)
+    val speechState = speechInput.state
     val deviceId = DeviceIdRepository(application).getOrCreate()
     private val rolePreferences = application.getSharedPreferences("resq_role", 0)
     private val _rescueMode = MutableStateFlow(rolePreferences.getBoolean("rescue_mode", false))
@@ -67,6 +81,8 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _events = MutableSharedFlow<PacketEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<PacketEvent> = _events.asSharedFlow()
+    private val _analysis = MutableStateFlow(AnalysisUiState())
+    val analysis: StateFlow<AnalysisUiState> = _analysis.asStateFlow()
 
     fun hasLocationPermission() = locationProvider.hasPermission()
 
@@ -129,15 +145,42 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun createSos() = createPacket(EmergencyType.SOS, "Immediate SOS assistance requested", EmergencyPriority.CRITICAL)
+    fun startSpeechInput() = speechInput.start()
+    fun stopSpeechInput() = speechInput.stop()
 
-    fun createReport(draft: EmergencyDraft) {
-        val priority = when (draft.type) {
-            EmergencyType.FIRE, EmergencyType.FLOOD, EmergencyType.MEDICAL -> EmergencyPriority.URGENT
-            else -> EmergencyPriority.NORMAL
+    fun analyzeDraft(draft: EmergencyDraft) {
+        viewModelScope.launch {
+            _analysis.value = AnalysisUiState(processing = true, draft = draft)
+            val steps = listOf(
+                "Understanding message",
+                "Identifying emergency type",
+                "Checking location",
+                "Determining priority",
+                "Preparing emergency packet"
+            )
+            val completed = mutableListOf<String>()
+            val result = EmergencyClassifier.classify(draft.description, draft.type)
+            for (step in steps) {
+                delay(220)
+                completed += step
+                _analysis.value = _analysis.value.copy(completedSteps = completed.toList())
+            }
+            _analysis.value = _analysis.value.copy(processing = false, result = result)
         }
-        createPacket(draft.type, draft.description, priority)
     }
+
+    fun createAnalyzedPacket() {
+        val state = _analysis.value
+        val draft = state.draft
+        val result = state.result
+        if (draft == null || result == null) {
+            _events.tryEmit(PacketEvent(false, "Analysis result is not ready"))
+            return
+        }
+        createPacket(result.type, draft.description, result.priority)
+    }
+
+    fun createSos() = createPacket(EmergencyType.SOS, "Immediate SOS assistance requested", EmergencyPriority.CRITICAL)
 
     private fun createPacket(type: EmergencyType, text: String, priority: EmergencyPriority) {
         val fix = _location.value.fix
@@ -156,6 +199,7 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         bluetooth.close()
         wifi.close()
+        speechInput.close()
         super.onCleared()
     }
 
