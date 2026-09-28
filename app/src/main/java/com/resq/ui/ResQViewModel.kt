@@ -70,6 +70,8 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
     val wifiState = wifi.state
     val forwardingLogs = database.supportDao().observeForwardingLogs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val mapMarkers = database.supportDao().observeMarkers()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _selectedPacketId = MutableStateFlow<String?>(null)
     val selectedPacketId: StateFlow<String?> = _selectedPacketId.asStateFlow()
 
@@ -148,6 +150,23 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
     fun startSpeechInput() = speechInput.start()
     fun stopSpeechInput() = speechInput.stop()
 
+    fun seedOfflineMapMarkers() {
+        val fix = _location.value.fix
+        val baseLat = fix?.latitude ?: 12.97160
+        val baseLng = fix?.longitude ?: 77.59460
+        val now = System.currentTimeMillis()
+        val samples = listOf(
+            MapMarker("safe-zone-1", "SAFE", "Community Safe Zone", baseLat + .0042, baseLng + .0020, "Open shelter with drinking water", "OFFLINE GUIDE", now),
+            MapMarker("medical-1", "MEDICAL", "Medical Point", baseLat - .0031, baseLng + .0045, "First aid and emergency medical support", "OFFLINE GUIDE", now + 1),
+            MapMarker("hazard-1", "HAZARD", "Flooded Road", baseLat + .0012, baseLng - .0040, "Road is unsafe; use an alternate route", "LOCAL REPORT", now + 2),
+            MapMarker("rescue-1", "RESCUE", "Rescue Point", baseLat - .0040, baseLng - .0025, "Rescue team assembly and pickup point", "RESQ", now + 3)
+        )
+        viewModelScope.launch {
+            samples.forEach { marker -> database.supportDao().upsertMarker(marker) }
+            _events.emit(PacketEvent(true, "Offline map markers saved"))
+        }
+    }
+
     fun analyzeDraft(draft: EmergencyDraft) {
         viewModelScope.launch {
             _analysis.value = AnalysisUiState(processing = true, draft = draft)
@@ -190,7 +209,21 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             repository.createPacket(deviceId, type, text, priority, fix).fold(
-                onSuccess = { _events.emit(PacketEvent(true, "${it.messageId} saved locally")) },
+                onSuccess = { packet ->
+                    database.supportDao().upsertMarker(
+                        MapMarker(
+                            id = "packet-${packet.messageId}",
+                            markerType = if (packet.type == EmergencyType.MEDICAL) "MEDICAL" else "SOS",
+                            title = "${packet.type.label} • ${packet.messageId}",
+                            lat = packet.latitude,
+                            lng = packet.longitude,
+                            description = packet.text,
+                            source = packet.senderId,
+                            createdAt = packet.timestamp
+                        )
+                    )
+                    _events.emit(PacketEvent(true, "${packet.messageId} saved locally and added to map"))
+                },
                 onFailure = { _events.emit(PacketEvent(false, it.message ?: "Packet could not be saved")) }
             )
         }

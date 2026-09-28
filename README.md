@@ -1,8 +1,18 @@
-# ResQ Android - Milestone 6
+# ResQ Android - Milestone 7
 
-Milestone 6 adds the on-device intelligence layer while preserving all verified GPS, Room, Bluetooth, Wi-Fi Direct, multi-hop, Rescue, and adaptive-decision functionality.
+Milestone 7 adds a persistent offline disaster map while preserving all verified GPS, Room, Bluetooth, Wi-Fi Direct, multi-hop, Rescue, adaptive-decision, speech, and AI-classification functionality.
 
-## Added
+## Milestone 7 added
+
+- Fully offline, code-rendered map with no map API or internet dependency
+- Persisted Room markers for SOS, hazard, safe zone, medical, and rescue locations
+- Emergency packets automatically become tappable map markers
+- Marker category filters and saved detail cards
+- Current GPS location used as the local map center
+- Built-in demonstration markers saved near the current location
+- Deterministic coordinate projection unit tests
+
+## Milestone 6 retained
 
 - Deterministic local emergency text classification
 - FLOOD, FIRE, MEDICAL, BLOCKED ROAD, DAMAGED BRIDGE, SOS, and manual OTHER fallback
@@ -18,13 +28,24 @@ No cloud AI call is made by the classifier. No model is trained. The rule set is
 
 ## Install
 
-1. Extract `ResQ_Milestone_6_Android.zip`.
+1. Extract `ResQ_Milestone_7_Android.zip`.
 2. Open its inner `resq-android` folder in Android Studio.
 3. Use JVM 21 and sync Gradle.
 4. Install the same build on the test phones.
 5. Preserve Milestone 4 as the stable Bluetooth baseline and Milestone 5 as the Wi-Fi/decision baseline.
 
-## Required demo test
+## Required Milestone 7 demo test
+
+1. Open **Map** from Home or the bottom navigation.
+2. Tap the location button and grant location permission.
+3. Tap the add-marker button once.
+4. Confirm Safe Zone, Medical Point, Flooded Road, and Rescue Point appear.
+5. Tap each marker and verify its details, coordinates, source, and saved time.
+6. Turn off internet and reopen the app; confirm the markers remain available.
+7. Create an SOS or analyzed emergency packet and return to Map.
+8. Confirm the new emergency appears as an SOS/medical marker.
+
+## Milestone 6 regression test
 
 1. Enable GPS and open **Report Emergency**.
 2. Select Flood (this remains the manual fallback).
@@ -94,6 +115,18 @@ app/src/test/java/com/resq/ai/classifier/
 - **Classifier test fails after editing rules:** restore deterministic precedence: critical phrases first, then urgent phrases, then normal.
 - **Gradle JVM error:** use JVM 21, not JVM 25.
 
-## Scope note
+## Important source paths
 
-Image understanding remains optional and is not included. Milestone 7 adds the offline disaster map, persisted SOS/hazard/help/medical/safe markers, and location visualization.
+```text
+app/src/main/java/com/resq/
+  map/OfflineMapProjector.kt
+  ui/map/OfflineMapScreen.kt
+  data/model/SupportEntities.kt
+  data/db/SupportDao.kt
+  ui/ResQViewModel.kt
+
+app/src/test/java/com/resq/map/
+  OfflineMapProjectorTest.kt
+```
+
+The map intentionally uses a schematic offline disaster layout instead of online map tiles. This guarantees the demonstration still works during a network outage.

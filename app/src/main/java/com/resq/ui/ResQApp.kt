@@ -29,7 +29,7 @@ import androidx.navigation.compose.rememberNavController
 import com.resq.ui.home.HomeScreen
 import com.resq.ui.messages.PacketHistoryScreen
 import com.resq.ui.mesh.MeshScreen
-import com.resq.ui.placeholder.ComingSoonScreen
+import com.resq.ui.map.OfflineMapScreen
 import com.resq.ui.report.ReportScreen
 import com.resq.ui.rescue.RescueModeScreen
 import com.resq.ui.wifi.WifiDirectScreen
@@ -71,6 +71,7 @@ fun ResQApp() {
     val wifiState by viewModel.wifiState.collectAsState()
     val speechState by viewModel.speechState.collectAsState()
     val analysisState by viewModel.analysis.collectAsState()
+    val mapMarkers by viewModel.mapMarkers.collectAsState()
     var themeMode by remember { mutableStateOf(ThemeMode.SYSTEM) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -303,7 +304,15 @@ fun ResQApp() {
                     )
                 }
                 composable(Routes.MESSAGES) { PacketHistoryScreen(packets, forwardingLogs) }
-                composable(Routes.MAP) { ComingSoonScreen("Offline Map", "Milestone 7") }
+                composable(Routes.MAP) {
+                    OfflineMapScreen(
+                        markers = mapMarkers,
+                        centerLatitude = location.fix?.latitude,
+                        centerLongitude = location.fix?.longitude,
+                        onSeedMarkers = viewModel::seedOfflineMapMarkers,
+                        onGetLocation = getLocation
+                    )
+                }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(viewModel.deviceId, themeMode) { themeMode = it }
                 }

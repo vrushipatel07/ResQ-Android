@@ -21,4 +21,10 @@ interface SupportDao {
 
     @androidx.room.Query("SELECT * FROM forwarding_log ORDER BY timestamp DESC")
     fun observeForwardingLogs(): Flow<List<ForwardingLog>>
+
+    @androidx.room.Query("SELECT * FROM map_markers ORDER BY createdAt DESC")
+    fun observeMarkers(): Flow<List<MapMarker>>
+
+    @androidx.room.Query("SELECT COUNT(*) FROM map_markers")
+    suspend fun markerCount(): Int
 }
