@@ -1,6 +1,51 @@
-# ResQ Android - Milestone 7
+# ResQ Android - Milestone 7.2 — Karnataka Rescue Services Map
 
-Milestone 7 adds a persistent offline disaster map while preserving all verified GPS, Room, Bluetooth, Wi-Fi Direct, multi-hop, Rescue, adaptive-decision, speech, and AI-classification functionality.
+Milestone 7.2 turns the real MapLibre/PMTiles Karnataka map into a rescue-focused map while preserving every previously verified feature.
+
+The map now displays color-coded hospitals and clinics, fire stations, police stations, emergency supplies, and shelters/support points. Rescue POIs work offline, can be tapped for their name/category/coordinates, and the location button centres the map on the phone's current position. Most POIs appear only after zooming to street/city level.
+
+An older zoom-14 archive can show hospitals, but detailed services such as fire and police stations may not be stored in it. Generate a zoom-15 archive for the full rescue layer.
+
+## What is new in 7.2
+
+- Offline rescue-service POI layers with a clear color legend
+- Tap-to-inspect rescue place details
+- GPS-centred street-level map view
+- Existing imported map remains usable; zoom 15 is recommended for complete POI coverage
+
+## What was added in 7.1
+
+- Real pan-and-zoom vector map rendered with MapLibre Android 13.6.1
+- Local `karnataka.pmtiles` import with a strict 1 GB maximum
+- Map file stored in ResQ's app-specific storage and available without internet
+- Roads, water, land use, buildings and administrative boundaries
+- All Room-backed ResQ SOS/medical/hazard/safe/rescue markers over the real map
+- No API key and no Google Maps billing account
+- Original schematic map remains available before import
+
+## Create `karnataka.pmtiles` on Windows
+
+1. Download the Windows `pmtiles.exe` CLI from the official Protomaps/go-pmtiles GitHub Releases page.
+2. Visit `https://maps.protomaps.com/builds` and copy the URL of a recent Version 4 daily `.pmtiles` build.
+3. In the folder containing `pmtiles.exe`, open PowerShell and run:
+
+```powershell
+.\pmtiles.exe extract "PASTE_DAILY_BUILD_URL_HERE" karnataka.pmtiles --bbox=74.05,11.50,78.60,18.80 --maxzoom=15
+```
+
+The bounding box covers Karnataka with a small safety margin. Zoom 15 is required for detailed fire, police, clinic, shelter, and supply POIs. If the result exceeds the app's 1 GB limit, keep the existing zoom-14 file for hospitals and major places, or make a smaller district/city archive at zoom 15. Each additional zoom level can substantially increase archive size.
+
+4. Verify the archive:
+
+```powershell
+.\pmtiles.exe verify karnataka.pmtiles
+```
+
+5. Copy `karnataka.pmtiles` to the phone with USB, Google Drive, or another file-transfer method.
+6. In ResQ open **Map** > **Import Karnataka Map**, select the file and wait for 100%.
+7. Turn off Wi-Fi/mobile data and reopen Map to prove it is offline.
+
+The PMTiles basemap is distributed under the ODbL Produced Work terms and requires OpenStreetMap attribution. ResQ displays attribution under the map.
 
 ## Milestone 7 added
 
@@ -28,7 +73,7 @@ No cloud AI call is made by the classifier. No model is trained. The rule set is
 
 ## Install
 
-1. Extract `ResQ_Milestone_7_Android.zip`.
+1. Extract `ResQ_Milestone_7_2_Rescue_Map_Android.zip`.
 2. Open its inner `resq-android` folder in Android Studio.
 3. Use JVM 21 and sync Gradle.
 4. Install the same build on the test phones.

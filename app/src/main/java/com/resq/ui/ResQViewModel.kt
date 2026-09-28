@@ -22,6 +22,7 @@ import com.resq.ai.classifier.ClassificationResult
 import com.resq.ai.classifier.EmergencyClassifier
 import com.resq.ai.speech.SpeechInputManager
 import com.resq.mesh.packet.MeshProtocol
+import com.resq.map.KarnatakaMapPackageManager
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -47,7 +48,9 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = EmergencyRepository(database.packetDao())
     private val locationProvider = LocationProvider(application)
     private val speechInput = SpeechInputManager(application)
+    private val karnatakaMapPackage = KarnatakaMapPackageManager(application)
     val speechState = speechInput.state
+    val karnatakaMapState = karnatakaMapPackage.state
     val deviceId = DeviceIdRepository(application).getOrCreate()
     private val rolePreferences = application.getSharedPreferences("resq_role", 0)
     private val _rescueMode = MutableStateFlow(rolePreferences.getBoolean("rescue_mode", false))
@@ -149,6 +152,15 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startSpeechInput() = speechInput.start()
     fun stopSpeechInput() = speechInput.stop()
+    fun currentKarnatakaMapFile() = karnatakaMapPackage.currentFile()
+    fun importKarnatakaMap(uri: android.net.Uri) {
+        viewModelScope.launch {
+            karnatakaMapPackage.import(uri).fold(
+                onSuccess = { _events.emit(PacketEvent(true, "Karnataka offline map imported")) },
+                onFailure = { _events.emit(PacketEvent(false, it.message ?: "Map import failed")) }
+            )
+        }
+    }
 
     fun seedOfflineMapMarkers() {
         val fix = _location.value.fix

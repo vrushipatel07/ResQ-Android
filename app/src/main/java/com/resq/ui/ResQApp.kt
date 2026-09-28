@@ -30,6 +30,7 @@ import com.resq.ui.home.HomeScreen
 import com.resq.ui.messages.PacketHistoryScreen
 import com.resq.ui.mesh.MeshScreen
 import com.resq.ui.map.OfflineMapScreen
+import com.resq.ui.map.KarnatakaMapScreen
 import com.resq.ui.report.ReportScreen
 import com.resq.ui.rescue.RescueModeScreen
 import com.resq.ui.wifi.WifiDirectScreen
@@ -72,6 +73,7 @@ fun ResQApp() {
     val speechState by viewModel.speechState.collectAsState()
     val analysisState by viewModel.analysis.collectAsState()
     val mapMarkers by viewModel.mapMarkers.collectAsState()
+    val karnatakaMapState by viewModel.karnatakaMapState.collectAsState()
     var themeMode by remember { mutableStateOf(ThemeMode.SYSTEM) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -305,13 +307,23 @@ fun ResQApp() {
                 }
                 composable(Routes.MESSAGES) { PacketHistoryScreen(packets, forwardingLogs) }
                 composable(Routes.MAP) {
-                    OfflineMapScreen(
+                    KarnatakaMapScreen(
+                        state = karnatakaMapState,
                         markers = mapMarkers,
-                        centerLatitude = location.fix?.latitude,
-                        centerLongitude = location.fix?.longitude,
-                        onSeedMarkers = viewModel::seedOfflineMapMarkers,
-                        onGetLocation = getLocation
-                    )
+                        mapFile = viewModel.currentKarnatakaMapFile(),
+                        currentLatitude = location.fix?.latitude,
+                        currentLongitude = location.fix?.longitude,
+                        onGetLocation = getLocation,
+                        onImport = viewModel::importKarnatakaMap
+                    ) {
+                        OfflineMapScreen(
+                            markers = mapMarkers,
+                            centerLatitude = location.fix?.latitude,
+                            centerLongitude = location.fix?.longitude,
+                            onSeedMarkers = viewModel::seedOfflineMapMarkers,
+                            onGetLocation = getLocation
+                        )
+                    }
                 }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(viewModel.deviceId, themeMode) { themeMode = it }

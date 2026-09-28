@@ -13,8 +13,8 @@ android {
         applicationId = "com.resq"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.7.0-m7"
+        versionCode = 9
+        versionName = "0.7.2-rescue-map"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -58,6 +58,7 @@ dependencies {
     implementation("androidx.room:room-ktx:2.7.1")
     kapt("androidx.room:room-compiler:2.7.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("org.maplibre.gl:android-sdk:13.6.1")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
