@@ -21,6 +21,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -71,20 +74,35 @@ fun ResQApp() {
     val selectedPacketId by viewModel.selectedPacketId.collectAsState()
     val wifiState by viewModel.wifiState.collectAsState()
     val speechState by viewModel.speechState.collectAsState()
+    val imageAnalysisState by viewModel.imageAnalysis.collectAsState()
     val analysisState by viewModel.analysis.collectAsState()
     val mapMarkers by viewModel.mapMarkers.collectAsState()
     val karnatakaMapState by viewModel.karnatakaMapState.collectAsState()
     var themeMode by remember { mutableStateOf(ThemeMode.SYSTEM) }
+    var requestLiveAfterPermission by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        if (permissions.values.any { it }) viewModel.refreshLocation()
-        else Toast.makeText(context, "Location permission was denied", Toast.LENGTH_LONG).show()
+        if (permissions.values.any { it }) {
+            if (requestLiveAfterPermission) viewModel.startLiveLocation() else viewModel.refreshLocation()
+        }
+        else Toast.makeText(context, "Location permission denied. Enable it in Android Settings to use GPS.", Toast.LENGTH_LONG).show()
+        requestLiveAfterPermission = false
     }
     val getLocation = {
         if (viewModel.hasLocationPermission()) viewModel.refreshLocation()
-        else permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        else {
+            requestLiveAfterPermission = false
+            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+    val startLiveLocation = {
+        if (viewModel.hasLocationPermission()) viewModel.startLiveLocation()
+        else {
+            requestLiveAfterPermission = true
+            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
     }
     val bluetoothPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         arrayOf(
@@ -147,7 +165,11 @@ fun ResQApp() {
     }
     val locationText = when {
         location.loading -> "Finding location…"
-        location.fix != null -> "${"%.5f".format(location.fix!!.latitude)}, ${"%.5f".format(location.fix!!.longitude)}"
+        location.fix != null -> buildString {
+            append("${"%.5f".format(location.fix!!.latitude)}, ${"%.5f".format(location.fix!!.longitude)}")
+            location.fix!!.accuracyMeters?.let { append(" • ±${it.toInt()} m") }
+            append(if (location.fix!!.isStale) " • last known" else if (location.live) " • live" else " • current")
+        }
         location.error != null -> location.error!!
         else -> "Location not captured"
     }
@@ -214,12 +236,16 @@ fun ResQApp() {
                     )
                 }
                 composable(Routes.REPORT) {
+                    LaunchedEffect(Unit) { viewModel.clearEmergencyImage() }
                     ReportScreen(
                         locationText = locationText,
                         hasLocation = location.fix != null,
                         onGetLocation = getLocation,
                         speechState = speechState,
+                        imageState = imageAnalysisState,
                         onSpeak = startSpeech,
+                        onAnalyzeImage = viewModel::analyzeEmergencyImage,
+                        onClearImage = viewModel::discardEmergencyImage,
                         onBack = { navController.popBackStack() },
                         onContinue = {
                             viewModel.analyzeDraft(it)
@@ -307,12 +333,30 @@ fun ResQApp() {
                 }
                 composable(Routes.MESSAGES) { PacketHistoryScreen(packets, forwardingLogs) }
                 composable(Routes.MAP) {
+                    val lifecycleOwner = LocalLifecycleOwner.current
+                    DisposableEffect(lifecycleOwner) {
+                        val observer = LifecycleEventObserver { _, event ->
+                            when (event) {
+                                Lifecycle.Event.ON_START -> startLiveLocation()
+                                Lifecycle.Event.ON_STOP -> viewModel.stopLiveLocation()
+                                else -> Unit
+                            }
+                        }
+                        lifecycleOwner.lifecycle.addObserver(observer)
+                        startLiveLocation()
+                        onDispose {
+                            lifecycleOwner.lifecycle.removeObserver(observer)
+                            viewModel.stopLiveLocation()
+                        }
+                    }
                     KarnatakaMapScreen(
                         state = karnatakaMapState,
                         markers = mapMarkers,
                         mapFile = viewModel.currentKarnatakaMapFile(),
                         currentLatitude = location.fix?.latitude,
                         currentLongitude = location.fix?.longitude,
+                        locationIsStale = location.fix?.isStale == true,
+                        liveLocationActive = location.live,
                         onGetLocation = getLocation,
                         onImport = viewModel::importKarnatakaMap
                     ) {

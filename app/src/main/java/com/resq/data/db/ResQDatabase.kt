@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.resq.data.model.DeviceState
 import com.resq.data.model.EmergencyPacket
 import com.resq.data.model.ForwardingLog
@@ -12,7 +14,7 @@ import com.resq.data.model.MapMarker
 
 @Database(
     entities = [EmergencyPacket::class, ForwardingLog::class, MapMarker::class, DeviceState::class],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -23,12 +25,19 @@ abstract class ResQDatabase : RoomDatabase() {
     companion object {
         @Volatile private var instance: ResQDatabase? = null
 
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE emergency_packets ADD COLUMN imageLocalPath TEXT")
+            }
+        }
+
         fun getInstance(context: Context): ResQDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 ResQDatabase::class.java,
                 "resq.db"
-            ).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2)
+                .build().also { instance = it }
         }
     }
 }

@@ -15,7 +15,9 @@ object EmergencyClassifier {
         EmergencyType.FLOOD to listOf("flood", "flooded", "water rising", "drowning", "washed away"),
         EmergencyType.FIRE to listOf("fire", "smoke", "burning", "flames", "explosion"),
         EmergencyType.MEDICAL to listOf("medical", "injured", "injury", "bleeding", "unconscious", "first aid", "heart attack"),
-        EmergencyType.BLOCKED_ROAD to listOf("blocked road", "road blocked", "landslide", "debris"),
+        EmergencyType.BLOCKED_ROAD to listOf(
+            "blocked road", "road blocked", "road damage", "damaged road", "road surface", "landslide", "debris"
+        ),
         EmergencyType.DAMAGED_BRIDGE to listOf("damaged bridge", "bridge collapse", "bridge broken"),
         EmergencyType.SOS to listOf("sos", "help me", "immediate help")
     )

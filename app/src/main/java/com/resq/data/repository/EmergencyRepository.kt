@@ -15,7 +15,8 @@ class EmergencyRepository(private val dao: EmergencyPacketDao) {
         type: EmergencyType,
         text: String,
         priority: EmergencyPriority,
-        location: LocationFix
+        location: LocationFix,
+        imageLocalPath: String? = null
     ): Result<EmergencyPacket> {
         val now = System.currentTimeMillis()
         val packet = EmergencyPacket(
@@ -29,7 +30,8 @@ class EmergencyRepository(private val dao: EmergencyPacketDao) {
             senderId = senderId,
             status = PacketStatus.STORED,
             hopCount = 0,
-            lastForwardedAt = null
+            lastForwardedAt = null,
+            imageLocalPath = imageLocalPath
         )
         return PacketValidator.validate(packet).fold(
             onSuccess = {

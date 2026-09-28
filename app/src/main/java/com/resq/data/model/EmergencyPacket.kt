@@ -19,5 +19,6 @@ data class EmergencyPacket(
     val senderId: String,
     val status: PacketStatus,
     val hopCount: Int,
-    val lastForwardedAt: Long?
+    val lastForwardedAt: Long?,
+    val imageLocalPath: String? = null
 )

@@ -13,5 +13,6 @@ enum class EmergencyType(val label: String, val emoji: String) {
 data class EmergencyDraft(
     val type: EmergencyType = EmergencyType.FLOOD,
     val description: String = "",
-    val locationLabel: String = "Location will be added in Milestone 2"
+    val locationLabel: String = "Location will be added in Milestone 2",
+    val imageLocalPath: String? = null
 )

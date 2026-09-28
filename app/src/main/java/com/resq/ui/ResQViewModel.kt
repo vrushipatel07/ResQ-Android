@@ -2,6 +2,7 @@ package com.resq.ui
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import android.os.BatteryManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
@@ -21,15 +22,28 @@ import com.resq.ai.decision.*
 import com.resq.ai.classifier.ClassificationResult
 import com.resq.ai.classifier.EmergencyClassifier
 import com.resq.ai.speech.SpeechInputManager
+import com.resq.ai.vision.EmergencyImageAnalyzer
 import com.resq.mesh.packet.MeshProtocol
 import com.resq.map.KarnatakaMapPackageManager
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import java.io.File
 
 data class LocationUiState(
     val loading: Boolean = false,
     val fix: LocationFix? = null,
+    val error: String? = null,
+    val live: Boolean = false
+)
+
+data class ImageAnalysisUiState(
+    val analyzing: Boolean = false,
+    val localImagePath: String? = null,
+    val suggestedDescription: String = "",
+    val labels: List<String> = emptyList(),
+    val warning: String? = null,
     val error: String? = null
 )
 
@@ -48,6 +62,7 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = EmergencyRepository(database.packetDao())
     private val locationProvider = LocationProvider(application)
     private val speechInput = SpeechInputManager(application)
+    private val imageAnalyzer = EmergencyImageAnalyzer(application)
     private val karnatakaMapPackage = KarnatakaMapPackageManager(application)
     val speechState = speechInput.state
     val karnatakaMapState = karnatakaMapPackage.state
@@ -83,6 +98,10 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _location = MutableStateFlow(LocationUiState())
     val location: StateFlow<LocationUiState> = _location.asStateFlow()
+    private var liveLocationJob: Job? = null
+
+    private val _imageAnalysis = MutableStateFlow(ImageAnalysisUiState())
+    val imageAnalysis: StateFlow<ImageAnalysisUiState> = _imageAnalysis.asStateFlow()
 
     private val _events = MutableSharedFlow<PacketEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<PacketEvent> = _events.asSharedFlow()
@@ -142,12 +161,72 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshLocation() {
         viewModelScope.launch {
-            _location.value = LocationUiState(loading = true)
+            _location.value = _location.value.copy(loading = true, error = null)
             locationProvider.currentLocation().fold(
-                onSuccess = { _location.value = LocationUiState(fix = it) },
-                onFailure = { _location.value = LocationUiState(error = it.message ?: "Location unavailable") }
+                onSuccess = { _location.value = LocationUiState(fix = it, live = liveLocationJob?.isActive == true) },
+                onFailure = {
+                    _location.value = _location.value.copy(
+                        loading = false,
+                        error = it.message ?: "Location unavailable"
+                    )
+                }
             )
         }
+    }
+
+    fun startLiveLocation() {
+        if (!locationProvider.hasPermission() || liveLocationJob?.isActive == true) return
+        liveLocationJob = viewModelScope.launch {
+            _location.value = _location.value.copy(loading = _location.value.fix == null, live = true, error = null)
+            locationProvider.locationUpdates()
+                .catch { error ->
+                    _location.value = _location.value.copy(
+                        loading = false,
+                        live = false,
+                        error = error.message ?: "Live location unavailable; tap My Location to retry"
+                    )
+                }
+                .collect { fix ->
+                    _location.value = LocationUiState(fix = fix, live = true)
+                }
+        }
+        if (_location.value.fix == null) refreshLocation()
+    }
+
+    fun stopLiveLocation() {
+        liveLocationJob?.cancel()
+        liveLocationJob = null
+        _location.value = _location.value.copy(live = false)
+    }
+
+    fun analyzeEmergencyImage(uri: Uri) {
+        viewModelScope.launch {
+            _imageAnalysis.value = ImageAnalysisUiState(analyzing = true)
+            imageAnalyzer.analyze(uri).fold(
+                onSuccess = { result ->
+                    _imageAnalysis.value = ImageAnalysisUiState(
+                        localImagePath = result.localImagePath,
+                        suggestedDescription = result.description,
+                        labels = result.labels,
+                        warning = result.warning
+                    )
+                },
+                onFailure = { error ->
+                    _imageAnalysis.value = ImageAnalysisUiState(
+                        error = error.message ?: "The image could not be opened; type the emergency manually"
+                    )
+                }
+            )
+        }
+    }
+
+    fun clearEmergencyImage() {
+        _imageAnalysis.value = ImageAnalysisUiState()
+    }
+
+    fun discardEmergencyImage() {
+        _imageAnalysis.value.localImagePath?.let { path -> runCatching { File(path).delete() } }
+        _imageAnalysis.value = ImageAnalysisUiState()
     }
 
     fun startSpeechInput() = speechInput.start()
@@ -208,19 +287,26 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
             _events.tryEmit(PacketEvent(false, "Analysis result is not ready"))
             return
         }
-        createPacket(result.type, draft.description, result.priority)
+        createPacket(result.type, draft.description, result.priority, draft.imageLocalPath)
     }
 
     fun createSos() = createPacket(EmergencyType.SOS, "Immediate SOS assistance requested", EmergencyPriority.CRITICAL)
 
-    private fun createPacket(type: EmergencyType, text: String, priority: EmergencyPriority) {
-        val fix = _location.value.fix
-        if (fix == null) {
-            _events.tryEmit(PacketEvent(false, "Get a GPS location before creating the packet"))
-            return
-        }
+    private fun createPacket(
+        type: EmergencyType,
+        text: String,
+        priority: EmergencyPriority,
+        imageLocalPath: String? = null
+    ) {
         viewModelScope.launch {
-            repository.createPacket(deviceId, type, text, priority, fix).fold(
+            val latest = locationProvider.currentLocation().getOrNull()
+            val fix = latest ?: _location.value.fix
+            if (fix == null) {
+                _events.emit(PacketEvent(false, "GPS is unavailable. Enable location and retry; the report has not been lost."))
+                return@launch
+            }
+            if (latest != null) _location.value = _location.value.copy(fix = latest, loading = false, error = null)
+            repository.createPacket(deviceId, type, text, priority, fix, imageLocalPath).fold(
                 onSuccess = { packet ->
                     database.supportDao().upsertMarker(
                         MapMarker(
@@ -245,6 +331,8 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
         bluetooth.close()
         wifi.close()
         speechInput.close()
+        imageAnalyzer.close()
+        liveLocationJob?.cancel()
         super.onCleared()
     }
 

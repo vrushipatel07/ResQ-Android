@@ -1,12 +1,37 @@
-# ResQ Android - Milestone 7.2 — Karnataka Rescue Services Map
+# ResQ Android 0.8.0 — Live Rescue Intelligence
 
-Milestone 7.2 turns the real MapLibre/PMTiles Karnataka map into a rescue-focused map while preserving every previously verified feature.
+Version 0.8.0 extends the working ResQ application with battery-aware live location, nearest offline rescue-service search, distance calculation, an honest offline directional-path fallback, and on-device emergency-photo understanding. Bluetooth, Wi-Fi Direct, Room, the existing classifier, Rescue Mode, and the PMTiles map architecture are preserved.
+
+## What is new in 0.8.0
+
+- Live Fused Location updates while the Map screen is open (15-second interval and 10-metre movement threshold)
+- Fresh high-accuracy location request before an emergency packet is saved
+- Last-known-location fallback with a visible stale-location indication
+- Find Nearby categories for hospitals/clinics, fire, police, pharmacies, fuel/water, and shelters
+- Haversine distance calculation from the current GPS position
+- Facility selection, exact coordinates, and an offline straight-line directional path
+- Explicit warning that the path is not turn-by-turn road navigation
+- Camera and gallery emergency-photo input
+- System camera contract, so ResQ does not request unnecessary direct camera access
+- Bundled ML Kit image labeling that remains available offline
+- Conservative generated descriptions that distinguish visible evidence from user-provided context
+- Mandatory user review/edit/use step before the description enters `EmergencyClassifier`
+- Local photo storage associated with the reporting device's Room packet record
+- Room migration 1 → 2 that preserves existing emergency packets
+
+## Image-analysis limitation
+
+The bundled general-purpose ML Kit model labels visible objects and scenes; it is not a specialized disaster-severity model. ResQ creates conservative text from confident labels and asks the user to verify or edit it. It never automatically invents injuries, victim counts, causes, exact locations, priority, or a claim that the user is trapped. If analysis fails, the photo remains local and typed reporting continues normally.
+
+## Offline route limitation
+
+PMTiles contains display tiles, not a routable road graph. ResQ therefore shows the user, destination, distance, and a straight directional line. It does not claim to provide turn-by-turn navigation. Full offline road routing would require a separate routing graph/engine in a later version.
 
 The map now displays color-coded hospitals and clinics, fire stations, police stations, emergency supplies, and shelters/support points. Rescue POIs work offline, can be tapped for their name/category/coordinates, and the location button centres the map on the phone's current position. Most POIs appear only after zooming to street/city level.
 
 An older zoom-14 archive can show hospitals, but detailed services such as fire and police stations may not be stored in it. Generate a zoom-15 archive for the full rescue layer.
 
-## What is new in 7.2
+## What was added in 7.2
 
 - Offline rescue-service POI layers with a clear color legend
 - Tap-to-inspect rescue place details
@@ -73,11 +98,50 @@ No cloud AI call is made by the classifier. No model is trained. The rule set is
 
 ## Install
 
-1. Extract `ResQ_Milestone_7_2_Rescue_Map_Android.zip`.
+1. Extract `ResQ_0_8_0_Live_Rescue_Android.zip`.
 2. Open its inner `resq-android` folder in Android Studio.
 3. Use JVM 21 and sync Gradle.
 4. Install the same build on the test phones.
 5. Preserve Milestone 4 as the stable Bluetooth baseline and Milestone 5 as the Wi-Fi/decision baseline.
+
+Do not uninstall the existing ResQ application. Version code 10 upgrades versions 7.1/7.2 and Room migration 1 → 2 keeps the stored data. The already imported PMTiles file remains in app storage when the upgrade is signed with the same Android Studio debug key.
+
+## Version 0.8.0 verification
+
+### Live location
+
+1. Grant location permission and enable GPS.
+2. Open **Map** and confirm the legend shows **GPS: live**.
+3. Move outdoors and confirm the user marker updates without repeatedly tapping the button.
+4. Leave Map and confirm live tracking stops.
+5. Create a report and confirm its packet coordinates use the latest fix.
+
+### Nearby services and path
+
+1. Import the zoom-15 Karnataka PMTiles archive.
+2. Open **Map** and tap **Find Nearby**.
+3. Choose Hospital / Clinic, Fire Station, Police Station, Pharmacy, Fuel / Water, or Shelter / Support.
+4. Confirm up to five visible nearby facilities are sorted by straight-line distance.
+5. Select one and tap **Show offline path**.
+6. Confirm the user marker, destination marker, distance, and red directional line appear.
+7. Confirm the straight-line limitation is displayed.
+
+### Emergency photo
+
+1. Open **Report Emergency**.
+2. Tap **Take Photo** or **Choose Image**.
+3. Wait for on-device analysis.
+4. Review the detected labels and suggested description.
+5. Tap **Edit** if needed, then **Use Description**.
+6. Confirm the text appears in the normal description field.
+7. Tap **Analyze Emergency** and confirm the existing five-stage classifier runs.
+8. Create the packet and confirm Messages shows **Photo saved locally on reporting device**.
+
+### Offline regression
+
+1. Disable mobile data and Wi-Fi.
+2. Repeat map, photo, text-classification, Room storage, Bluetooth forwarding, and Rescue Mode tests.
+3. Confirm failure of photo analysis never prevents a manually typed emergency report.
 
 ## Required Milestone 7 demo test
 

@@ -52,6 +52,9 @@ fun PacketHistoryScreen(packets: List<EmergencyPacket>, logs: List<ForwardingLog
                         Spacer(Modifier.height(6.dp))
                         Text(packet.type.label, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                         Text(packet.text, maxLines = 2)
+                        if (packet.imageLocalPath != null) {
+                            Text("Photo saved locally on reporting device", style = MaterialTheme.typography.labelSmall)
+                        }
                         Spacer(Modifier.height(8.dp))
                         Text("${"%.5f".format(packet.latitude)}, ${"%.5f".format(packet.longitude)}", style = MaterialTheme.typography.bodySmall)
                         Text(DateFormat.getDateTimeInstance().format(Date(packet.timestamp)), style = MaterialTheme.typography.bodySmall)
