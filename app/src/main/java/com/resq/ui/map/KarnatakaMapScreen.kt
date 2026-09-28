@@ -1,5 +1,11 @@
 package com.resq.ui.map
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,6 +34,8 @@ import com.resq.ui.components.ResQCard
 import com.resq.ui.components.ResQHeader
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
+import org.maplibre.android.annotations.Icon
+import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -41,6 +49,7 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import java.io.File
+import kotlin.math.roundToInt
 
 @Composable
 fun KarnatakaMapScreen(
@@ -140,6 +149,8 @@ private fun RealKarnatakaMap(
     var findMenuOpen by remember { mutableStateOf(false) }
     var searchMessage by remember { mutableStateOf<String?>(null) }
     var showRoute by remember { mutableStateOf(false) }
+    var hasCenteredOnDevice by remember(file.absolutePath) { mutableStateOf(false) }
+    val deviceLocationIcon = remember(context) { createDeviceLocationIcon(context) }
     val latestLatitude by rememberUpdatedState(currentLatitude)
     val latestLongitude by rememberUpdatedState(currentLongitude)
 
@@ -158,7 +169,7 @@ private fun RealKarnatakaMap(
                     readyMap.addOnMapClickListener { tapped ->
                         val feature = readyMap.queryRenderedFeatures(
                             readyMap.projection.toScreenLocation(tapped),
-                            rescueLayerIds
+                            *rescueLayerIds
                         ).firstOrNull()
                         val service = feature?.toService(latestLatitude, latestLongitude)
                         if (service != null) {
@@ -198,19 +209,6 @@ private fun RealKarnatakaMap(
     LaunchedEffect(map, markers, currentLatitude, currentLongitude, selectedPoi, locationIsStale, liveLocationActive) {
         map?.let { mapLibre ->
             mapLibre.clear()
-            if (currentLatitude != null && currentLongitude != null) {
-                mapLibre.addMarker(
-                    MarkerOptions().position(LatLng(currentLatitude, currentLongitude))
-                        .title(
-                            when {
-                                locationIsStale -> "Your last known location"
-                                liveLocationActive -> "Your live location"
-                                else -> "Your current location"
-                            }
-                        )
-                        .snippet("GPS position")
-                )
-            }
             markers.forEach { marker ->
                 mapLibre.addMarker(
                     MarkerOptions().position(LatLng(marker.lat, marker.lng))
@@ -224,6 +222,30 @@ private fun RealKarnatakaMap(
                         .title(destination.name)
                         .snippet("Selected ${destination.category.label}")
                 )
+            }
+            if (currentLatitude != null && currentLongitude != null) {
+                mapLibre.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(currentLatitude, currentLongitude))
+                        .icon(deviceLocationIcon)
+                        .title("YOU • This device")
+                        .snippet(
+                            when {
+                                locationIsStale -> "Last known GPS location"
+                                liveLocationActive -> "Live GPS location"
+                                else -> "Current GPS location"
+                            }
+                        )
+                )
+                if (!hasCenteredOnDevice) {
+                    mapLibre.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(
+                            LatLng(currentLatitude, currentLongitude),
+                            16.0
+                        )
+                    )
+                    hasCenteredOnDevice = true
+                }
             }
         }
     }
@@ -276,7 +298,7 @@ private fun RealKarnatakaMap(
         mapView.postDelayed({
             val features = mapLibre.queryRenderedFeatures(
                 RectF(0f, 0f, mapView.width.toFloat(), mapView.height.toFloat()),
-                arrayOf(category.layerId)
+                category.layerId
             )
             val results = features.mapNotNull { it.toService(latitude, longitude) }
                 .filter { it.category == category }
@@ -412,6 +434,7 @@ private fun RescueLegend(
                 },
                 fontSize = 10.sp
             )
+            LegendItem("You / this device", ComposeColor(0xFF006CFF))
             LegendItem("Medical", ComposeColor(0xFFD92D3A))
             LegendItem("Fire", ComposeColor(0xFFF47B20))
             LegendItem("Police", ComposeColor(0xFF1976D2))
@@ -419,6 +442,51 @@ private fun RescueLegend(
             LegendItem("Shelter", ComposeColor(0xFF7B4BB7))
         }
     }
+}
+
+@Suppress("DEPRECATION")
+private fun createDeviceLocationIcon(context: Context): Icon {
+    val density = context.resources.displayMetrics.density
+    val width = (62f * density).roundToInt().coerceAtLeast(62)
+    val height = (74f * density).roundToInt().coerceAtLeast(74)
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    val centerX = width / 2f
+    val circleY = height * 0.39f
+    val outerRadius = width * 0.40f
+    val innerRadius = width * 0.33f
+
+    paint.color = Color.argb(80, 0, 0, 0)
+    canvas.drawCircle(centerX + density * 1.5f, circleY + density * 2f, outerRadius, paint)
+
+    val pointer = Path().apply {
+        moveTo(centerX - width * 0.14f, circleY + innerRadius * 0.62f)
+        lineTo(centerX, height * 0.96f)
+        lineTo(centerX + width * 0.14f, circleY + innerRadius * 0.62f)
+        close()
+    }
+    paint.color = Color.rgb(0, 108, 255)
+    canvas.drawPath(pointer, paint)
+
+    paint.color = Color.WHITE
+    canvas.drawCircle(centerX, circleY, outerRadius, paint)
+    paint.color = Color.rgb(0, 108, 255)
+    canvas.drawCircle(centerX, circleY, innerRadius, paint)
+
+    paint.color = Color.WHITE
+    canvas.drawCircle(centerX, circleY - innerRadius * 0.28f, innerRadius * 0.22f, paint)
+    canvas.drawRoundRect(
+        centerX - innerRadius * 0.30f,
+        circleY + innerRadius * 0.02f,
+        centerX + innerRadius * 0.30f,
+        circleY + innerRadius * 0.46f,
+        innerRadius * 0.12f,
+        innerRadius * 0.12f,
+        paint
+    )
+
+    return IconFactory.getInstance(context).fromBitmap(bitmap)
 }
 
 @Composable

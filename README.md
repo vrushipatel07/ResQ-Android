@@ -1,4 +1,12 @@
-# ResQ Android 0.8.0 — Live Rescue Intelligence
+# ResQ Android 0.8.1 — Live Rescue Intelligence
+
+## What is new in 0.8.1
+
+- Large blue person/device marker labelled `YOU • This device`
+- Device marker is added after other markers so it remains visually prominent
+- Map automatically centres on the first available GPS fix at street-level zoom
+- My Location button remains available to recenter after panning
+- Rescue legend now identifies the device marker
 
 Version 0.8.0 extends the working ResQ application with battery-aware live location, nearest offline rescue-service search, distance calculation, an honest offline directional-path fallback, and on-device emergency-photo understanding. Bluetooth, Wi-Fi Direct, Room, the existing classifier, Rescue Mode, and the PMTiles map architecture are preserved.
 
